@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+/* 
+ * Universal High-Contrast Rules
+ * Prevents white-on-white text issues across all themes, inputs, and modals
+ */
+
+/* Default text color for light backgrounds */
+.bg-white,
+.bg-slate-50,
+.bg-slate-100,
+.bg-slate-200,
+.bg-gray-50,
+.bg-gray-100,
+.bg-emerald-50,
+.bg-indigo-50,
+.bg-amber-50,
+.bg-blue-50 {
+  color: #0f172a !important; /* Slate 900 for absolute contrast */
+}
+
+/* Light background cards must ensure headings, paragraphs, and labels are dark */
+.bg-white h1, .bg-white h2, .bg-white h3, .bg-white h4, .bg-white h5, .bg-white h6,
+.bg-white p, .bg-white span:not([class*="bg-"]):not([class*="text-"]),
+.bg-slate-50 h1, .bg-slate-50 h2, .bg-slate-50 h3, .bg-slate-50 h4,
+.bg-slate-50 p, .bg-slate-50 span:not([class*="bg-"]):not([class*="text-"]),
+.bg-slate-100 h1, .bg-slate-100 h2, .bg-slate-100 h3, .bg-slate-100 h4 {
+  color: #0f172a;
+}
+
+/* Form inputs on light backgrounds */
+input.bg-white,
+input.bg-slate-50,
+input.bg-slate-100,
+select.bg-white,
+select.bg-slate-50,
+select.bg-slate-100,
+textarea.bg-white,
+textarea.bg-slate-50,
+textarea.bg-slate-100,
+.bg-white input:not([class*="bg-slate-9"]):not([class*="bg-slate-8"]),
+.bg-white select:not([class*="bg-slate-9"]):not([class*="bg-slate-8"]),
+.bg-white textarea:not([class*="bg-slate-9"]):not([class*="bg-slate-8"]),
+.bg-slate-50 input:not([class*="bg-slate-9"]):not([class*="bg-slate-8"]),
+.bg-slate-50 select:not([class*="bg-slate-9"]):not([class*="bg-slate-8"]) {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+
+input.bg-white::placeholder,
+.bg-white input::placeholder,
+textarea.bg-white::placeholder,
+.bg-white textarea::placeholder {
+  color: #64748b !important;
+}
+
+/* Form inputs on dark backgrounds */
+input.bg-slate-900,
+input.bg-slate-950,
+select.bg-slate-900,
+select.bg-slate-950,
+textarea.bg-slate-900,
+textarea.bg-slate-950,
+.bg-slate-900 input:not(.bg-white):not([class*="bg-white"]),
+.bg-slate-950 input:not(.bg-white):not([class*="bg-white"]),
+.bg-slate-900 select:not(.bg-white):not([class*="bg-white"]),
+.bg-slate-950 select:not(.bg-white):not([class*="bg-white"]) {
+  color: #f8fafc !important;
+}
+
+input.bg-slate-900::placeholder,
+input.bg-slate-950::placeholder,
+.bg-slate-900 input::placeholder,
+.bg-slate-950 input::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* Standard focus styles */
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+}

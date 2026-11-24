@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: salesdoc-integration-hub
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SALESDOC_BASE_URL
+        value: https://namdistribution.salesdoc.io/api/v2
+      - key: SALESDOC_TIMEOUT_MS
+        value: "30000"
+      - key: SALESDOC_DRY_RUN
+        value: "false"
+      - key: SALESDOC_TOKEN
+        sync: false
+      - key: SALESDOC_USER_ID
+        sync: false
+      - key: SALESDOC_FILIAL_ID
+        sync: false
+      - key: SALESDOC_LOGIN
+        sync: false
+      - key: SALESDOC_PASSWORD
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_DEFAULT_CHAT_ID
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false

@@ -1,0 +1,8 @@
+{
+  "name": "Remix  integratsiya",
+  "description": "Enterprise-grade SalesDoc API V2 integration platform for products, clients, orders, warehouse stock, and payments synchronization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
