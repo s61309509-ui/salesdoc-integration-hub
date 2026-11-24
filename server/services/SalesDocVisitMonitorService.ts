@@ -298,6 +298,21 @@ export class SalesDocVisitMonitorService {
       };
     }
 
+    if (visited === 0 && photos.length === 0) {
+      return {
+        hasCoveredCameraPhoto,
+        hasFakePolkaPhoto,
+        hasPolkaPhoto,
+        hasOutsidePhoto,
+        status: 'violation_no_photos',
+        statusLabel: "Hali kirilmagan (22:30 hisobotdan keyin ro'yxatda yuboriladi)",
+        violationType: 'no_photos',
+        shouldAlert: false,
+        alertTitle: "Do'konga hali tashrif buyurilmagan",
+        alertReason: "Agent hali bu do'konga yetib bormagan (tashrif qilinmagan). Kirmagan do'konlar kunduzi guruhga yuborilmaydi — faqat 22:30 dagi hisobotdan keyin ro'yxat sifatida yuboriladi."
+      };
+    }
+
     if (isDistant && hasPolkaPhoto) {
       return {
         hasCoveredCameraPhoto,
@@ -314,6 +329,10 @@ export class SalesDocVisitMonitorService {
     }
 
     if (isDistant && !hasPolkaPhoto) {
+      const reasonDetail =
+        photos.length === 0
+          ? `100m dan uzoqda vizit qilingan (${distDisplay}) va do'kon ichi (polka) rasmi olinmagan!`
+          : `100m dan uzoqda vizit qilingan (${distDisplay}) va polka rasmi olinmagan (faqat tashqi ko'rinish rasmi olingan)!`;
       return {
         hasCoveredCameraPhoto,
         hasFakePolkaPhoto,
@@ -324,22 +343,22 @@ export class SalesDocVisitMonitorService {
         violationType: 'distant_no_polka',
         shouldAlert: true,
         alertTitle: "Do'kondan uzoqda vizit qilingan",
-        alertReason: `100m dan uzoqda vizit qilingan (${distDisplay}) va polkani rasmi olinmagan (faqat do'kon uzoqdan rasmga olingan)!`
+        alertReason: reasonDetail
       };
     }
 
-    if (photos.length === 0 || visited === 0) {
+    if (photos.length === 0) {
       return {
         hasCoveredCameraPhoto,
         hasFakePolkaPhoto,
         hasPolkaPhoto,
         hasOutsidePhoto,
         status: 'violation_no_photos',
-        statusLabel: "Tashrif qilinmagan (Kechki ro'yxatda yuboriladi)",
+        statusLabel: "Tashrif qilingan, foto olinmagan (22:30 hisobotda ko'rinadi)",
         violationType: 'no_photos',
         shouldAlert: false,
-        alertTitle: "Do'konga tashrif buyurilmagan",
-        alertReason: "Do'konga tashrif qilinmagan, agent bormagan (Foto-hisobot olinmagan). Kechki umumiy ro'yxatda yuboriladi."
+        alertTitle: "Foto-hisobot olinmagan",
+        alertReason: "Do'konga tashrif GPS me'yorida qilingan, ammo foto-hisobot yuklanmagan."
       };
     }
 
@@ -601,6 +620,14 @@ export class SalesDocVisitMonitorService {
       const clientId = v.client_id;
       clientVisitedSet.add(clientId);
 
+      const visitedNum = Number(v.visited ?? 1);
+      const clientPhotos = (photosByClient.get(clientId) || []).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      const clientOrders = (ordersByClient.get(clientId) || []).sort((a, b) => (b.orderCreated || b.dateDocument || '').localeCompare(a.orderCreated || a.dateDocument || ''));
+      const latestOrder = clientOrders[0];
+
+      // Planned but not-yet-visited stops (visited=0, photos=0) have gps_visit=0 by default in SalesDoc;
+      // they must NEVER be treated as distant visits or alerted during the day.
+      const hasActualVisit = visitedNum === 1 || clientPhotos.length > 0;
       const gpsVisit = Number(v.gps_visit ?? 1);
       const rawDist =
         typeof v.distance === 'number'
@@ -608,14 +635,12 @@ export class SalesDocVisitMonitorService {
           : typeof v.distance_meters === 'number'
             ? v.distance_meters
             : null;
-      const distanceMeters: number | null = rawDist;
+      const distanceMeters: number | null = hasActualVisit ? rawDist : null;
       const distanceSource: VisitAnalysisItem['distance_source'] =
-        distanceMeters !== null ? 'exact' : 'gps_flag_only';
-      const isDistant = distanceMeters !== null ? distanceMeters > 100 : gpsVisit === 0;
-
-      const clientPhotos = (photosByClient.get(clientId) || []).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
-      const clientOrders = (ordersByClient.get(clientId) || []).sort((a, b) => (b.orderCreated || b.dateDocument || '').localeCompare(a.orderCreated || a.dateDocument || ''));
-      const latestOrder = clientOrders[0];
+        !hasActualVisit ? 'unknown' : (distanceMeters !== null ? 'exact' : 'gps_flag_only');
+      const isDistant = hasActualVisit
+        ? (distanceMeters !== null ? distanceMeters > 100 : gpsVisit === 0)
+        : false;
 
       // Parse photos (merging SalesDoc categories, manual flags, and authoritative Gemini Vision AI verdicts)
       const photos: PhotoInfo[] = clientPhotos.map((p, pIdx) => {
@@ -1044,6 +1069,22 @@ export class SalesDocVisitMonitorService {
 
     if (!item) {
       throw new Error(`Tashrif topilmadi: ${visitKey}`);
+    }
+
+    if (item.visited === 0 && (!item.photos || item.photos.length === 0)) {
+      return {
+        success: false,
+        chatId: '',
+        error: "Agent hali bu do'konga tashrif buyurmagan. Kirmagan do'konlar kunduzi guruhga yuborilmaydi — faqat 22:30 dagi hisobotdan keyin ro'yxat sifatida yuboriladi."
+      };
+    }
+
+    if (item.status === 'violation_no_photos' && !item.should_alert) {
+      return {
+        success: false,
+        chatId: '',
+        error: "Kirmagan / rasmsiz (uzoqda emas) holatlar kunduzi guruhga alohida xabar sifatida tashlanmaydi."
+      };
     }
 
     // Strict requirement: only suppress if genuine inside polka photo exists and NO covered camera or fake polka mismatch

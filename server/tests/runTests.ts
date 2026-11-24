@@ -14,6 +14,7 @@ import { SalesDocMapper } from '../mappers/salesdoc.mapper.js';
 import { LocalDb } from '../storage/localDb.js';
 import { SalesDocOrderService } from '../services/SalesDocOrderService.js';
 import { SalesDocVisitMonitorService } from '../services/SalesDocVisitMonitorService.js';
+import { SalesDocDailyReportService } from '../services/SalesDocDailyReportService.js';
 import { SalesDocReferenceService } from '../services/SalesDocReferenceService.js';
 import { LocalOrder } from '../types/salesdoc.types.js';
 import { generateIsoDateRange, getTashkentDayOfWeek } from '../utils/timezone.js';
@@ -364,6 +365,166 @@ async function runAllTests() {
     db.deleteCustomVisit(testVisitRealKey);
     db.deletePhotoAiAnalysis([fakePhotoId, screenPhotoId, realPhotoId]);
   }
+
+  // Test 10: Unvisited Stores Must NOT Be Alerted During Daytime & 22:30 Scheduler Guard
+  console.log('\n📋 Test Group 10: Unvisited Store Suppression & 22:30 Scheduler Guard');
+  const todayIso10 = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date());
+  const stubClient = {
+    getConfig: () => ({ token: 'stub-token', savedLogin: '', savedPassword: '', dryRun: true }),
+    request: async (method: string) => {
+      if (method === 'getPRCategory') return { status: true, result: { prCategory: [] } };
+      return { status: true, result: {} };
+    },
+    fetchAllPages: async (method: string) => {
+      if (method === 'getVisit') {
+        return [
+          {
+            agent_id: 'd0_1',
+            agent_name: 'ТП1',
+            client_id: 'UNVISITED_C1',
+            client_name: 'Hali Kirilmagan Store',
+            category_name: 'MM',
+            date: `${todayIso10} 02:06:00`,
+            start_date: null,
+            end_date: null,
+            planned: 1,
+            visited: 0,
+            gps_visit: 0,
+            has_order: 0,
+            order_summa: 0
+          },
+          {
+            agent_id: 'd0_1',
+            agent_name: 'ТП1',
+            client_id: 'DISTANT_VISITED_OUTSIDE',
+            client_name: 'Uzoqda Tashqi Rasm Store',
+            category_name: 'MM',
+            date: `${todayIso10} 11:00:00`,
+            start_date: `${todayIso10} 11:00:00`,
+            end_date: `${todayIso10} 11:02:00`,
+            planned: 1,
+            visited: 1,
+            gps_visit: 0,
+            distance: 155,
+            has_order: 0,
+            order_summa: 0
+          },
+          {
+            agent_id: 'd0_1',
+            agent_name: 'ТП1',
+            client_id: 'DISTANT_VISITED_NOPHOTO',
+            client_name: 'Uzoqda Rasmsiz Store',
+            category_name: 'MM',
+            date: `${todayIso10} 12:00:00`,
+            start_date: `${todayIso10} 12:00:00`,
+            end_date: `${todayIso10} 12:01:00`,
+            planned: 1,
+            visited: 1,
+            gps_visit: 0,
+            has_order: 0,
+            order_summa: 0
+          }
+        ];
+      }
+      if (method === 'getPhotoReport') {
+        return [
+          {
+            SD_id: 'PH_OUT_1',
+            agent_id: 'd0_1',
+            client_id: 'DISTANT_VISITED_OUTSIDE',
+            cat_id: 'd0_2',
+            date: `${todayIso10} 11:01:00`,
+            url: 'https://example.com/outside.jpg'
+          }
+        ];
+      }
+      return [];
+    }
+  } as any;
+
+  const stubMonitor = new SalesDocVisitMonitorService(stubClient, db);
+  const stubRes = await stubMonitor.analyzeVisits({ agentId: 'd0_1', dateFrom: todayIso10, dateTo: todayIso10 });
+  const unvisitedItem = stubRes.items.find((i) => i.client_id === 'UNVISITED_C1');
+  const distantOutsideItem = stubRes.items.find((i) => i.client_id === 'DISTANT_VISITED_OUTSIDE');
+  const distantNoPhotoItem = stubRes.items.find((i) => i.client_id === 'DISTANT_VISITED_NOPHOTO');
+
+  assert(
+    Boolean(
+      unvisitedItem &&
+        !unvisitedItem.is_distant &&
+        unvisitedItem.status === 'violation_no_photos' &&
+        !unvisitedItem.should_alert
+    ),
+    'Unvisited planned store (visited=0, gps_visit=0, photos=0) is NOT marked distant and has should_alert=false'
+  );
+
+  const blockedUnvisitedSend = await stubMonitor.sendVisitToTelegram(unvisitedItem!.visitKey, {
+    customBotToken: 'OFFLINE_DUMMY_TOKEN',
+    item: unvisitedItem
+  });
+  assert(
+    blockedUnvisitedSend.success === false,
+    'sendVisitToTelegram blocks sending unvisited (visited=0) store individually during the day'
+  );
+
+  assert(
+    Boolean(
+      distantOutsideItem &&
+        distantOutsideItem.is_distant &&
+        distantOutsideItem.status === 'violation_distant_no_polka' &&
+        distantOutsideItem.should_alert
+    ),
+    'Visited distant store with outside-only photo triggers violation_distant_no_polka alert'
+  );
+
+  assert(
+    Boolean(
+      distantNoPhotoItem &&
+        distantNoPhotoItem.is_distant &&
+        distantNoPhotoItem.status === 'violation_distant_no_polka' &&
+        distantNoPhotoItem.should_alert &&
+        !distantNoPhotoItem.alert_reason.includes("faqat tashqi ko'rinish")
+    ),
+    'Visited distant store without photos alerts accurately without false outside-photo text'
+  );
+
+  assert(
+    SalesDocDailyReportService.isScheduledDispatchDue({
+      hours: 13,
+      minutes: 25,
+      dateIso: '2026-11-24',
+      scheduledTime: '22:30'
+    }) === false,
+    'Daily report + unvisited list scheduler does NOT trigger at 13:25 Tashkent time'
+  );
+  assert(
+    SalesDocDailyReportService.isScheduledDispatchDue({
+      hours: 22,
+      minutes: 29,
+      dateIso: '2026-11-24',
+      scheduledTime: '22:30'
+    }) === false,
+    'Daily report + unvisited list scheduler does NOT trigger at 22:29 Tashkent time'
+  );
+  assert(
+    SalesDocDailyReportService.isScheduledDispatchDue({
+      hours: 22,
+      minutes: 30,
+      dateIso: '2026-11-24',
+      scheduledTime: '22:30'
+    }) === true,
+    'Daily report + unvisited list scheduler triggers at 22:30 Tashkent time'
+  );
+  assert(
+    SalesDocDailyReportService.isScheduledDispatchDue({
+      hours: 22,
+      minutes: 35,
+      dateIso: '2026-11-24',
+      scheduledTime: '22:30',
+      lastSentDate: '2026-11-24'
+    }) === false,
+    'Daily report + unvisited list scheduler does NOT resend on same day'
+  );
 
   console.log('\n=============================================================');
   console.log(`🏁 TEST RESULTS: ${passed} PASSED, ${failed} FAILED`);

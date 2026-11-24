@@ -981,9 +981,9 @@ export class SalesDocDailyReportService {
               throw new Error(j1.description || 'Telegram sendMessage xatosi');
             }
 
-            // If there are unvisited shops, send their list right after!
+            // If there are unvisited shops, send their list right after the daily report!
             if (unvisitedMessage) {
-              await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+              const res2 = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -993,6 +993,10 @@ export class SalesDocDailyReportService {
                   parse_mode: 'HTML'
                 })
               });
+              const j2 = await res2.json();
+              if (!j2.ok) {
+                throw new Error(j2.description || 'Telegram unvisitedMessage xatosi');
+              }
             }
           }
 
@@ -1016,11 +1020,13 @@ export class SalesDocDailyReportService {
       }
     }
 
-    // Record last sent time
-    this.db.updateDailyReportConfig({
-      lastSentDate: reportData.date,
-      lastSentAt: new Date().toISOString()
-    });
+    // Record last sent time only for full daily report dispatches when at least one message succeeded (or no groups needed sending)
+    if (!options.onlyUnvisited && (totalSent > 0 || failed === 0)) {
+      this.db.updateDailyReportConfig({
+        lastSentDate: reportData.date,
+        lastSentAt: new Date().toISOString()
+      });
+    }
 
     return {
       success: failed === 0,
@@ -1028,6 +1034,25 @@ export class SalesDocDailyReportService {
       failed,
       results
     };
+  }
+
+  /**
+   * Pure helper for 22:30 (Asia/Tashkent, UTC+5) scheduled dispatch check.
+   */
+  public static isScheduledDispatchDue(params: {
+    hours: number;
+    minutes: number;
+    dateIso: string;
+    scheduledTime?: string;
+    lastSentDate?: string;
+  }): boolean {
+    const rawTime = (params.scheduledTime || '22:30').trim();
+    const parts = rawTime.split(':').map((n) => Number(n));
+    const targetH = Number.isInteger(parts[0]) && parts[0] >= 0 && parts[0] <= 23 ? parts[0] : 22;
+    const targetM = Number.isInteger(parts[1]) && parts[1] >= 0 && parts[1] <= 59 ? parts[1] : 30;
+    const isTime = params.hours > targetH || (params.hours === targetH && params.minutes >= targetM);
+    const notSentToday = params.lastSentDate !== params.dateIso;
+    return isTime && notSentToday;
   }
 
   /**
@@ -1044,19 +1069,21 @@ export class SalesDocDailyReportService {
         // Current time in Uzbekistan (Asia/Tashkent, UTC+5)
         const { hours, minutes, dateIso: todayStr } = getTashkentTimeParts();
 
-        // Trigger at 22:30 or later if not already sent today
-        const [targetH, targetM] = (config.scheduledTime || '22:30').split(':').map(Number);
-
-        const isTime = hours > targetH || (hours === targetH && minutes >= targetM);
-        const notSentToday = config.lastSentDate !== todayStr;
-
-        if (isTime && notSentToday) {
+        if (
+          SalesDocDailyReportService.isScheduledDispatchDue({
+            hours,
+            minutes,
+            dateIso: todayStr,
+            scheduledTime: config.scheduledTime,
+            lastSentDate: config.lastSentDate
+          })
+        ) {
           const telegramConfig = this.db.getTelegramConfig();
           if (!telegramConfig.botToken) {
             // Bot token is not configured yet. Skip without throwing repeated errors.
             return;
           }
-          console.log(`[DailyReport] 22:30 yetib keldi! Bugungi (${todayStr}) kunlik hisobot barcha agent guruhlariga yuborilmoqda...`);
+          console.log(`[DailyReport] 22:30 yetib keldi! Bugungi (${todayStr}) kunlik hisobot va kirmagan do'konlar ro'yxati yuborilmoqda...`);
           await this.sendDailyReports({ date: todayStr });
         }
       } catch (err: any) {
